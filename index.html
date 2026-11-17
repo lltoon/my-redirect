@@ -65,15 +65,15 @@
 
 <div class="container">
   <div class="loader" id="loader"></div>
-  <div class="status" id="status">正在检测网络连通性...</div>
-  <div class="detail" id="detail">请稍候，系统正在为您选择最快的线路。</div>
-  <div class="error-msg hidden" id="errorMsg">两个链接均无法访问，请检查您的网络或稍后重试。</div>
+  <div class="status" id="status">正在检测局域网线路...</div>
+  <div class="detail" id="detail">优先尝试连接内网服务</div>
+  <div class="error-msg hidden" id="errorMsg">内网与外网线路均无法访问，请检查您的网络或稍后重试。</div>
 </div>
 
 <script>
 (function () {
   // ==========================================
-  // 在这里修改你的两个目标网址 (记得带上 https://)
+  // URL_B：局域网（优先） URL_A：外网（备用）
   // ==========================================
   const URL_A = "https://home.myxx.site:7002"; 
   const URL_B = "http://10.0.0.200:7002";
@@ -90,7 +90,7 @@
   /**
    * 核心检测函数
    * 原理：使用图片请求(Image)或无跨域头请求(fetch no-cors)
-   * 只要能收到响应，就说明网络可达（对于判断“能不能连上”非常有效）
+   * 只要能收到响应，就说明网络可达
    */
   function checkConnection(url) {
     return new Promise((resolve) => {
@@ -105,8 +105,7 @@
         }
       }, TIMEOUT_MS);
 
-      // 策略 1: 尝试使用 Image 对象探测（不受 CORS 限制，非常稳定）
-      // 我们借用目标网站的 favicon.ico 来测试
+      // 策略 1: Image 探测 favicon.ico，不受CORS限制
       const img = new Image();
       
       img.onload = function () {
@@ -121,18 +120,16 @@
         if (isResolved) return;
         clearTimeout(timer);
         isResolved = true;
-        // 图片加载失败，可能目标网站没有 favicon，或者真的不通
-        // 保险起见，使用 fetch no-cors 再兜底测一次
+        // favicon探测失败，走fetch兜底
         fetchFallback(url, startTime, resolve);
       };
 
-      // 拼接 favicon 地址并开始加载，加时间戳避免缓存
       const targetUrl = new URL(url);
       img.src = targetUrl.origin + "/favicon.ico?t=" + Date.now();
     });
   }
 
-  // 兜底策略：Fetch no-cors（只要不发跨域报错就算通）
+  // 兜底策略：Fetch no-cors HEAD
   function fetchFallback(url, startTime, resolve) {
     const controller = new AbortController();
     const fetchTimer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -154,53 +151,40 @@
     });
   }
 
-  // 执行主逻辑
+  // 主逻辑：串行，先内网，失败再外网
   async function init() {
-    statusEl.textContent = "正在并发测试两条线路...";
-    
-    // 1. 并发测试两个链接
-    const [resultA, resultB] = await Promise.all([
-      checkConnection(URL_A),
-      checkConnection(URL_B)
-    ]);
+    statusEl.textContent = "正在检测局域网线路...";
+    detailEl.textContent = `内网地址：${URL_B}`;
 
-    // 2. 打印调试信息（方便在 CloudBase 控制台或浏览器 F12 查看）
-    console.log("线路 A:", resultA);
-    console.log("线路 B:", resultB);
+    // 第一步：先测局域网
+    const resultB = await checkConnection(URL_B);
+    console.log("【内网线路B】", resultB);
 
-    // 3. 逻辑判断
-    let targetUrl = null;
-
-    if (resultA.ok && resultB.ok) {
-      // 两个都通，比较延迟
-      targetUrl = resultA.time <= resultB.time ? resultA.url : resultB.url;
-      statusEl.textContent = "线路均通畅，正在跳转最快线路...";
-    } else if (resultA.ok) {
-      // 只有 A 通
-      targetUrl = resultA.url;
-      statusEl.textContent = "检测完成，正在为您跳转...";
-    } else if (resultB.ok) {
-      // 只有 B 通
-      targetUrl = resultB.url;
-      statusEl.textContent = "检测完成，正在为您跳转...";
-    } else {
-      // 都不通
-      loaderEl.classList.add("hidden");
-      statusEl.textContent = "网络检测失败";
-      detailEl.classList.add("hidden");
-      errorMsgEl.classList.remove("hidden");
+    if (resultB.ok) {
+      statusEl.textContent = "局域网连通成功，正在跳转内网服务";
+      detailEl.innerHTML = `内网延迟：${Math.round(resultB.time)}ms`;
+      setTimeout(() => window.location.replace(URL_B), 800);
       return;
     }
 
-    // 更新 UI 提示
-    const delayA = resultA.ok ? Math.round(resultA.time) + 'ms' : '不可达';
-    const delayB = resultB.ok ? Math.round(resultB.time) + 'ms' : '不可达';
-    detailEl.innerHTML = `线路A: ${delayA} <br> 线路B: ${delayB}`;
+    // 内网不通，继续检测外网
+    statusEl.textContent = "局域网无法访问，正在切换检测外网线路...";
+    detailEl.textContent = `外网地址：${URL_A}`;
+    const resultA = await checkConnection(URL_A);
+    console.log("【外网线路A】", resultA);
 
-    // 4. 执行跳转 (延迟 800ms 让用户看清结果)
-    setTimeout(() => {
-      window.location.replace(targetUrl);
-    }, 800);
+    if (resultA.ok) {
+      statusEl.textContent = "外网线路连通成功，正在跳转外网服务";
+      detailEl.innerHTML = `外网延迟：${Math.round(resultA.time)}ms`;
+      setTimeout(() => window.location.replace(URL_A), 800);
+      return;
+    }
+
+    // 内网外网全都不通
+    loaderEl.classList.add("hidden");
+    statusEl.textContent = "所有线路检测失败";
+    detailEl.classList.add("hidden");
+    errorMsgEl.classList.remove("hidden");
   }
 
   // 启动
