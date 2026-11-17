@@ -7,7 +7,6 @@
 <style>
   :root {
     --primary: #2563eb;
-    --bg: #f8fafc;
     --text: #ffffff;
     --text-light: #e2e8f0;
   }
@@ -18,8 +17,7 @@
     align-items: center;
     justify-content: center;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    /* ========== 背景图设置 ========== */
-    background-image: url("https://pic1.zhimg.com/100/v2-84da182ca211f4717baaeac0657f90fc_r.jpg");
+    background-image: url("https://picsum.photos/id/1018/1920/1080");
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
@@ -27,7 +25,6 @@
     color: var(--text);
     position: relative;
   }
-  /* 半透明遮罩，防止文字看不清 */
   body::before {
     content: '';
     position: absolute;
@@ -92,11 +89,11 @@
 <body>
 <div class="container">
   <div class="loader" id="loader"></div>
-  <div class="status" id="status">优先尝试内网线路</div>
-  <div class="detail" id="detail">内网地址：http://10.0.0.200:7000</div>
+  <div class="status" id="status">优先访问内网</div>
+  <div class="detail" id="detail">正在尝试：http://10.0.0.200:7000</div>
   <div class="btn-group hidden" id="btnBox">
-    <button onclick="goLan()">👉 手动访问内网</button>
-    <button onclick="goWan()">🌐 手动访问外网</button>
+    <button onclick="goLan()">👉 重试内网</button>
+    <button onclick="goWan()">🌐 访问外网</button>
   </div>
 </div>
 
@@ -104,8 +101,7 @@
 (function () {
   const URL_LAN = "http://10.0.0.200:7000";
   const URL_WAN = "https://home.myxx.site:7002";
-  const TIMEOUT = 2200; // 内网探测超时时间，单位毫秒
-  let timer = null;
+  const TIMEOUT = 2200;
 
   const statusEl = document.getElementById("status");
   const detailEl = document.getElementById("detail");
@@ -115,43 +111,16 @@
   function goLan(){window.location.replace(URL_LAN);}
   function goWan(){window.location.replace(URL_WAN);}
 
-  // 探测内网地址
-  async function testLan() {
-    const controller = new AbortController();
-    timer = setTimeout(()=>{
-      controller.abort();
-      // 内网超时，切换外网
-      statusEl.textContent = "⚠️ 内网不可达，切换外网";
-      detailEl.textContent = `外网地址：${URL_WAN}`;
-      setTimeout(goWan, 600);
-    }, TIMEOUT);
-
-    try {
-      const res = await fetch(URL_LAN, {
-        mode: "no-cors",
-        signal: controller.signal
-      });
-      // fetch 没超时 = 内网通，直接跳转内网
-      clearTimeout(timer);
-      statusEl.textContent = "✅ 内网连通成功，跳转内网";
-      setTimeout(goLan, 600);
-    } catch (e) {
-      // 被abort是超时，已经在上面处理；其他错误=内网不通
-      if(e.name !== "AbortError"){
-        clearTimeout(timer);
-        statusEl.textContent = "⚠️ 内网无法访问，切换外网";
-        detailEl.textContent = `外网地址：${URL_WAN}`;
-        setTimeout(goWan, 600);
-      }
-    }
-  }
-  testLan().catch(()=>{
-    // 兜底：探测异常，展示手动按钮
+  // 直接跳转内网，超时后停止，展示按钮
+  const timeoutTimer = setTimeout(()=>{
     loaderEl.classList.add('hidden');
-    statusEl.textContent = "⚠️ 自动探测失败";
-    detailEl.textContent = "请手动选择线路";
+    statusEl.textContent = "⚠️ 内网超时无法连接";
+    detailEl.textContent = "可重试内网，或切换外网";
     btnBox.classList.remove('hidden');
-  });
+  }, TIMEOUT);
+
+  // 页面加载立刻跳内网
+  goLan();
 })();
 </script>
 </body>
