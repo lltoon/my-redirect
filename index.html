@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>正在选择最佳线路...</title>
+<title>线路选择中</title>
 <style>
   :root {
     --primary: #2563eb;
     --bg: #f8fafc;
-    --text: #334155;
-    --text-light: #94a3b8;
+    --text: #ffffff;
+    --text-light: #e2e8f0;
   }
   body {
     margin: 0;
@@ -18,20 +18,36 @@
     align-items: center;
     justify-content: center;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background-color: var(--bg);
+    /* ========== 背景图设置 ========== */
+    background-image: url("https://pic1.zhimg.com/100/v2-84da182ca211f4717baaeac0657f90fc_r.jpg");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
     color: var(--text);
+    position: relative;
+  }
+  /* 半透明遮罩，防止文字看不清 */
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-color: rgba(0,0,0,0.45);
+    z-index: 0;
   }
   .container {
     text-align: center;
     padding: 2rem;
     width: 100%;
     max-width: 400px;
+    position: relative;
+    z-index: 1;
   }
   .loader {
     width: 40px;
     height: 40px;
     margin: 0 auto 20px;
-    border: 4px solid #e2e8f0;
+    border: 4px solid rgba(255,255,255,0.3);
     border-top: 4px solid var(--primary);
     border-radius: 50%;
     animation: spin 1s linear infinite;
@@ -51,10 +67,22 @@
     line-height: 1.5;
     word-break: break-all;
   }
-  .error-msg {
-    color: #ef4444;
-    margin-top: 15px;
-    font-size: 0.9rem;
+  .btn-group{
+    margin-top:24px;
+    display:flex;
+    gap:12px;
+    justify-content:center;
+  }
+  button{
+    padding:8px 16px;
+    border:none;
+    border-radius:6px;
+    background:#2563eb;
+    color:white;
+    cursor:pointer;
+  }
+  button:hover{
+    background:#1d4ed8;
   }
   .hidden {
     display: none;
@@ -62,133 +90,68 @@
 </style>
 </head>
 <body>
-
 <div class="container">
   <div class="loader" id="loader"></div>
-  <div class="status" id="status">正在检测局域网线路...</div>
-  <div class="detail" id="detail">优先尝试连接内网服务</div>
-  <div class="error-msg hidden" id="errorMsg">内网与外网线路均无法访问，请检查您的网络或稍后重试。</div>
+  <div class="status" id="status">优先尝试内网线路</div>
+  <div class="detail" id="detail">内网地址：http://10.0.0.200:7000</div>
+  <div class="btn-group hidden" id="btnBox">
+    <button onclick="goLan()">👉 手动访问内网</button>
+    <button onclick="goWan()">🌐 手动访问外网</button>
+  </div>
 </div>
 
 <script>
 (function () {
-  // ==========================================
-  // URL_B：局域网（优先） URL_A：外网（备用）
-  // ==========================================
-  const URL_A = "https://home.myxx.site:7002"; 
-  const URL_B = "http://10.0.0.200:7000";
-  
-  // 检测超时时间（毫秒），建议 3000-5000 之间
-  const TIMEOUT_MS = 4000; 
-  // ==========================================
+  const URL_LAN = "http://10.0.0.200:7000";
+  const URL_WAN = "https://home.myxx.site:7002";
+  const TIMEOUT = 2200; // 内网探测超时时间，单位毫秒
+  let timer = null;
 
   const statusEl = document.getElementById("status");
   const detailEl = document.getElementById("detail");
   const loaderEl = document.getElementById("loader");
-  const errorMsgEl = document.getElementById("errorMsg");
+  const btnBox = document.getElementById("btnBox");
 
-  /**
-   * 核心检测函数
-   * 原理：使用图片请求(Image)或无跨域头请求(fetch no-cors)
-   * 只要能收到响应，就说明网络可达
-   */
-  function checkConnection(url) {
-    return new Promise((resolve) => {
-      const startTime = performance.now();
-      let isResolved = false;
+  function goLan(){window.location.replace(URL_LAN);}
+  function goWan(){window.location.replace(URL_WAN);}
 
-      // 超时控制器
-      const timer = setTimeout(() => {
-        if (!isResolved) {
-          isResolved = true;
-          resolve({ url, ok: false, time: Infinity });
-        }
-      }, TIMEOUT_MS);
-
-      // 策略 1: Image 探测 favicon.ico，不受CORS限制
-      const img = new Image();
-      
-      img.onload = function () {
-        if (isResolved) return;
-        clearTimeout(timer);
-        isResolved = true;
-        const time = performance.now() - startTime;
-        resolve({ url, ok: true, time });
-      };
-
-      img.onerror = function () {
-        if (isResolved) return;
-        clearTimeout(timer);
-        isResolved = true;
-        // favicon探测失败，走fetch兜底
-        fetchFallback(url, startTime, resolve);
-      };
-
-      const targetUrl = new URL(url);
-      img.src = targetUrl.origin + "/favicon.ico?t=" + Date.now();
-    });
-  }
-
-  // 兜底策略：Fetch no-cors HEAD
-  function fetchFallback(url, startTime, resolve) {
+  // 探测内网地址
+  async function testLan() {
     const controller = new AbortController();
-    const fetchTimer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    timer = setTimeout(()=>{
+      controller.abort();
+      // 内网超时，切换外网
+      statusEl.textContent = "⚠️ 内网不可达，切换外网";
+      detailEl.textContent = `外网地址：${URL_WAN}`;
+      setTimeout(goWan, 600);
+    }, TIMEOUT);
 
-    fetch(url, { 
-      method: 'HEAD', 
-      mode: 'no-cors', 
-      signal: controller.signal,
-      cache: 'no-store'
-    })
-    .then(() => {
-      clearTimeout(fetchTimer);
-      const time = performance.now() - startTime;
-      resolve({ url, ok: true, time });
-    })
-    .catch(() => {
-      clearTimeout(fetchTimer);
-      resolve({ url, ok: false, time: Infinity });
-    });
-  }
-
-  // 主逻辑：串行，先内网，失败再外网
-  async function init() {
-    statusEl.textContent = "正在检测局域网线路...";
-    detailEl.textContent = `内网地址：${URL_B}`;
-
-    // 第一步：先测局域网
-    const resultB = await checkConnection(URL_B);
-    console.log("【内网线路B】", resultB);
-
-    if (resultB.ok) {
-      statusEl.textContent = "局域网连通成功，正在跳转内网服务";
-      detailEl.innerHTML = `内网延迟：${Math.round(resultB.time)}ms`;
-      setTimeout(() => window.location.replace(URL_B), 800);
-      return;
+    try {
+      const res = await fetch(URL_LAN, {
+        mode: "no-cors",
+        signal: controller.signal
+      });
+      // fetch 没超时 = 内网通，直接跳转内网
+      clearTimeout(timer);
+      statusEl.textContent = "✅ 内网连通成功，跳转内网";
+      setTimeout(goLan, 600);
+    } catch (e) {
+      // 被abort是超时，已经在上面处理；其他错误=内网不通
+      if(e.name !== "AbortError"){
+        clearTimeout(timer);
+        statusEl.textContent = "⚠️ 内网无法访问，切换外网";
+        detailEl.textContent = `外网地址：${URL_WAN}`;
+        setTimeout(goWan, 600);
+      }
     }
-
-    // 内网不通，继续检测外网
-    statusEl.textContent = "局域网无法访问，正在切换检测外网线路...";
-    detailEl.textContent = `外网地址：${URL_A}`;
-    const resultA = await checkConnection(URL_A);
-    console.log("【外网线路A】", resultA);
-
-    if (resultA.ok) {
-      statusEl.textContent = "外网线路连通成功，正在跳转外网服务";
-      detailEl.innerHTML = `外网延迟：${Math.round(resultA.time)}ms`;
-      setTimeout(() => window.location.replace(URL_A), 800);
-      return;
-    }
-
-    // 内网外网全都不通
-    loaderEl.classList.add("hidden");
-    statusEl.textContent = "所有线路检测失败";
-    detailEl.classList.add("hidden");
-    errorMsgEl.classList.remove("hidden");
   }
-
-  // 启动
-  init();
+  testLan().catch(()=>{
+    // 兜底：探测异常，展示手动按钮
+    loaderEl.classList.add('hidden');
+    statusEl.textContent = "⚠️ 自动探测失败";
+    detailEl.textContent = "请手动选择线路";
+    btnBox.classList.remove('hidden');
+  });
 })();
 </script>
 </body>
